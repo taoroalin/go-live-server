@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"sync"
 
@@ -24,6 +25,9 @@ var websocketUpgrader = websocket.FastHTTPUpgrader{
 // list elements become nil when connections are disconnected. not as easy as I'd like to remove things from collections...
 var connectionListMutex = sync.Mutex{}
 var connectionList = []*websocket.Conn{}
+var rootPath = "./"
+
+var extRegex = regexp.MustCompile(`\.[a-z]+$`)
 
 func openBrowserToLink(url string) {
 	var err error
@@ -49,21 +53,51 @@ var websocketJS = []byte(`
 <!DOCTYPE html>
 <head>
 <script type="text/javascript">
-			var protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-			var address = protocol + window.location.host + '/ws';
-			var socket = new WebSocket(address);
-			socket.addEventListener("open", (event)=>{
-			socket.send("hi, I can send!")
-			})
+			let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+			let address = protocol + window.location.host + '/ws';
+			let socket = new WebSocket(address);
 			socket.addEventListener("message",(msg)=> {
-				console.log("got message!")
-				console.log(msg.data)
 				if (msg.data == 'reload') window.location.reload();
 			})
-			console.log('Live reload enabled.');
+			console.log('Go Live Server enabled.');
 </script>
 </head>
 `)
+
+var reconnecterJS = []byte(`
+const tryReconnect = ()=>{
+				try{
+					socket = new WebSocket(address);
+					document.removeEventListener(visEventListener)
+				}catch(e){
+				}
+			}
+			let reconnectInterval = null
+			let visEventListener = ()=>{
+					if(!document.hidden && reconnectInterval===null){
+						reconnectInterval = setInterval(tryReconnect, 1000)
+					}else if (reconnectInterval!==null){
+						clearInterval(reconnectInterval)
+						reconnectInterval = null
+					}
+				}
+			socket.onclose = ()=>{
+				console.log("socketclose")
+				if(!document.hidden) reconnectInterval = setInterval(tryReconnect, 1000)
+				document.addEventListener("visibilitychange", visEventListener)
+			}`)
+
+func fileNameToContentType(str string) string {
+	table := map[string]string{
+		".html":  "text/html; charset=UTF-8",
+		".css":   "text/css; charset=UTF-8",
+		".js":    "application/javascript; charset=UTF-8",
+		".woff2": "font/woff2",
+		".ico":   "image/x-icon"}
+	extension := extRegex.FindString(str)
+	contentType := table[extension]
+	return contentType
+}
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
 
@@ -71,7 +105,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	if string(protocol) != "HTTP/1.1" {
 		println(string(protocol))
 	}
-	path := "." + string(ctx.Path())
+	path := rootPath[:len(rootPath)-1] + string(ctx.Path())
 
 	if path == "./ws" {
 		websocketReadLoop := func(conn *websocket.Conn) {
@@ -111,8 +145,9 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	if len(uri.LastPathSegment()) == 0 {
 		path = string(path) + "index.html"
 	}
-	if len(path) >= 5 && path[len(path)-5:] == ".html" {
-		ctx.Response.Header.Set("Content-Type", "text/html")
+	contentType := fileNameToContentType(path)
+	if contentType != "" {
+		ctx.Response.Header.Set("Content-Type", contentType)
 	}
 	println(string(path))
 
@@ -169,8 +204,18 @@ func main() {
 	if watchError != nil {
 		panic(errors.New("go live server can't detect file changes on this oprating system"))
 	}
-	path, _ := os.Getwd()
-	addError := watcher.Add(path)
+
+	argsWithoutProgram := os.Args[1:]
+	if len(argsWithoutProgram) > 0 {
+		rootPath = argsWithoutProgram[0]
+		if rootPath[len(rootPath)-1] != '/' {
+			rootPath += "/"
+		}
+	}
+
+	println("watching " + rootPath)
+
+	addError := watcher.Add(rootPath)
 	if addError != nil {
 		panic(addError)
 	}
