@@ -16,10 +16,38 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+/*
+what command line options do I want?
+
+When file is changed multiple times quickly, only reload on last one
+
+When file is changed multiple times quickly, only reload on first one
+
+When server closes, close all tabs
+
+port
+
+host
+
+*/
+
+/*
+What would I need to do to make this project a legit open source thing?
+
+Test thoroughly on Windows, Linux, and Mac
+
+Add to a package manager
+
+Make file server behavior match mature file servers
+
+Documentation
+
+
+*/
+
 var websocketUpgrader = websocket.FastHTTPUpgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// handshake duration?
 }
 
 // list elements become nil when connections are disconnected. not as easy as I'd like to remove things from collections...
@@ -53,13 +81,16 @@ var websocketJS = []byte(`
 <!DOCTYPE html>
 <head>
 <script type="text/javascript">
-			let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-			let address = protocol + window.location.host + '/ws';
-			let socket = new WebSocket(address);
-			socket.addEventListener("message",(msg)=> {
-				if (msg.data == 'reload') window.location.reload();
-			})
-			console.log('Go Live Server enabled.');
+	let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+	let address = protocol + window.location.host + '/ws';
+	let socket = new WebSocket(address);
+	socket.addEventListener("message",(msg)=> {
+		if (msg.data == 'reload') window.location.reload();
+	})
+	socket.addEventListener("close", ()=>{
+		window.close()
+	})
+	console.log('Go Live Server enabled.');
 </script>
 </head>
 `)
@@ -93,10 +124,36 @@ func fileNameToContentType(str string) string {
 		".css":   "text/css; charset=UTF-8",
 		".js":    "application/javascript; charset=UTF-8",
 		".woff2": "font/woff2",
-		".ico":   "image/x-icon"}
+		".ico":   "image/x-icon",
+		".png":   "image/png",
+		".svg":   "image/svg+xml"}
 	extension := extRegex.FindString(str)
 	contentType := table[extension]
 	return contentType
+}
+
+func websocketCallback(conn *websocket.Conn) {
+	connectionListMutex.Lock()
+	connectionListIndex := len(connectionList)
+	connectionList = append(connectionList, conn)
+	connectionListMutex.Unlock()
+	// why callback? isn't the Go way to use goroutines?
+	for {
+		messageType, p, err := conn.ReadMessage()
+		println("got message " + string(p))
+		if err != nil {
+			fmt.Printf("%v\n", err)
+			connectionListMutex.Lock()
+			connectionList[connectionListIndex] = nil
+			connectionListMutex.Unlock()
+			conn.Close()
+			return
+		}
+		if err := conn.WriteMessage(messageType, p); err != nil {
+			fmt.Printf("%v\n", err)
+			return
+		}
+	}
 }
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
@@ -105,34 +162,10 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	if string(protocol) != "HTTP/1.1" {
 		println(string(protocol))
 	}
-	path := rootPath[:len(rootPath)-1] + string(ctx.Path())
-
-	if path == "./ws" {
-		websocketReadLoop := func(conn *websocket.Conn) {
-			connectionListMutex.Lock()
-			connectionListIndex := len(connectionList)
-			connectionList = append(connectionList, conn)
-			connectionListMutex.Unlock()
-			// why callback? isn't the Go way to use goroutines?
-			for {
-				messageType, p, err := conn.ReadMessage()
-				println("got message " + string(p))
-				if err != nil {
-					fmt.Printf("%v\n", err)
-					connectionListMutex.Lock()
-					connectionList[connectionListIndex] = nil
-					connectionListMutex.Unlock()
-					conn.Close()
-					return
-				}
-				if err := conn.WriteMessage(messageType, p); err != nil {
-					fmt.Printf("%v\n", err)
-					return
-				}
-			}
-		}
-
-		err := websocketUpgrader.Upgrade(ctx, websocketReadLoop)
+	requestedPath := string(ctx.Path())
+	path := rootPath[:len(rootPath)-1] + requestedPath
+	if requestedPath == "/ws" {
+		err := websocketUpgrader.Upgrade(ctx, websocketCallback)
 		if err != nil {
 			fmt.Printf("%v\n", err)
 			return
@@ -149,15 +182,13 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	if contentType != "" {
 		ctx.Response.Header.Set("Content-Type", contentType)
 	}
-	println(string(path))
 
 	if len(path) >= 5 && path[len(path)-5:] == ".html" {
-		println("serving html with websocket js")
 		fileBytes, err := ioutil.ReadFile(path)
 		if err != nil {
 			ctx.WriteString("404 Not Found")
 			ctx.SetStatusCode(404)
-			fmt.Printf("%v\n", err)
+			// fmt.Printf("%v\n", err)
 			return
 		}
 		fileBytesWithWebsocketJs := append(websocketJS, fileBytes...)
@@ -177,12 +208,13 @@ func fileEventReadLoop(watcher *fsnotify.Watcher) {
 	for {
 		select {
 		case event, ok := <-watcher.Events:
-			log.Println("event:", event)
+			// log.Println("event:", event)
 			if !ok {
 				return
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write { // what is op 0?
-				log.Println("modified file:", event.Name)
+				// log.Println("modified file:", event.Name)
+				fmt.Println("file modified, reloading")
 				for _, conn := range connectionList {
 					if conn != nil {
 						conn.WriteMessage(websocket.TextMessage, []byte("reload"))
