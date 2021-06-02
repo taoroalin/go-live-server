@@ -29,6 +29,14 @@ port
 
 host
 
+no-browser
+
+open-path -- open to different path than server root
+
+--help
+
+--version
+
 */
 
 /*
@@ -42,13 +50,21 @@ Make file server behavior match mature file servers
 
 Documentation
 
+benchmark vs live-server
+
+give warning when under WSL 2 that file notifications don't propagate between the OSes
 
 */
 
-var websocketUpgrader = websocket.FastHTTPUpgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
+/*
+
+optional features
+
+support ~/.live-server.json like NPM live-server?
+
+*/
+
+var websocketUpgrader = websocket.FastHTTPUpgrader{}
 
 // list elements become nil when connections are disconnected. not as easy as I'd like to remove things from collections...
 var connectionListMutex = sync.Mutex{}
@@ -56,6 +72,8 @@ var connectionList = []*websocket.Conn{}
 var rootPath = "./"
 
 var extRegex = regexp.MustCompile(`\.[a-z]+$`)
+
+var wslRegex = regexp.MustCompile(`microsoft`)
 
 func openBrowserToLink(url string) {
 	var err error
@@ -231,11 +249,25 @@ func fileEventReadLoop(watcher *fsnotify.Watcher) {
 	}
 }
 
+func warnIfInWSL2() {
+	if runtime.GOOS == "linux" {
+		procversion, err := ioutil.ReadFile("/proc/version")
+		if err != nil {
+			panic(err)
+		}
+		if wslRegex.Find(procversion) != nil {
+			fmt.Println("Warning: Cannot detect file changes from Windows in WSL")
+		}
+	}
+}
+
 func main() {
 	watcher, watchError := fsnotify.NewWatcher()
 	if watchError != nil {
 		panic(errors.New("go live server can't detect file changes on this oprating system"))
 	}
+
+	warnIfInWSL2()
 
 	argsWithoutProgram := os.Args[1:]
 	if len(argsWithoutProgram) > 0 {
