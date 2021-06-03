@@ -1,0 +1,1 @@
+go build main.go && main.exe -port=9091

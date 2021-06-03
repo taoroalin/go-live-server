@@ -1,8 +1,9 @@
 package main
 
 import (
-	"errors"
+	"flag"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"os"
@@ -15,29 +16,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/valyala/fasthttp"
 )
-
-/*
-what command line options do I want?
-
-When file is changed multiple times quickly, only reload on last one
-
-When file is changed multiple times quickly, only reload on first one
-
-When server closes, close all tabs
-
-port
-
-host
-
-no-browser
-
-open-path -- open to different path than server root
-
---help
-
---version
-
-*/
 
 /*
 What would I need to do to make this project a legit open source thing?
@@ -68,6 +46,8 @@ var websocketUpgrader = websocket.FastHTTPUpgrader{}
 
 // list elements become nil when connections are disconnected. not as easy as I'd like to remove things from collections...
 var connectionListMutex = sync.Mutex{}
+
+// this leaks memory, but wicked slow, 8 bytes per client that disconnects? sadly don't really have to worry about it
 var connectionList = []*websocket.Conn{}
 var rootPath = "./"
 
@@ -94,8 +74,15 @@ func openBrowserToLink(url string) {
 
 }
 
+type JSOptions struct {
+	Close     bool
+	Reconnect bool
+}
+
+var jsOptions JSOptions
+
 // weird behavior where it automatically closes the connection if the client doesn't send any message?
-var websocketJS = []byte(`
+var websocketJSTemplate, templateError = template.New("js").Parse(`
 <!DOCTYPE html>
 <head>
 <script type="text/javascript">
@@ -105,48 +92,65 @@ var websocketJS = []byte(`
 	socket.addEventListener("message",(msg)=> {
 		if (msg.data == 'reload') window.location.reload();
 	})
+	{{- if .Close}}
 	socket.addEventListener("close", ()=>{
 		window.close()
 	})
+	{{- end}}
 	console.log('Go Live Server enabled.');
+	{{- if .Reconnect}}
+	const tryReconnect = ()=>{
+		try{
+			socket = new WebSocket(address);
+			document.removeEventListener(visEventListener)
+		}catch(e){
+		}
+	}
+	let reconnectInterval = null
+	let visEventListener = ()=>{
+		if(!document.hidden && reconnectInterval===null){
+			reconnectInterval = setInterval(tryReconnect, 1000)
+		}else if (reconnectInterval!==null){
+			clearInterval(reconnectInterval)
+			reconnectInterval = null
+		}
+	}
+	socket.onclose = ()=>{
+		console.log("socketclose")
+		if(!document.hidden) reconnectInterval = setInterval(tryReconnect, 1000)
+		document.addEventListener("visibilitychange", visEventListener)
+	}
+	{{- end}}
 </script>
 </head>
 `)
 
-var reconnecterJS = []byte(`
-const tryReconnect = ()=>{
-				try{
-					socket = new WebSocket(address);
-					document.removeEventListener(visEventListener)
-				}catch(e){
-				}
-			}
-			let reconnectInterval = null
-			let visEventListener = ()=>{
-					if(!document.hidden && reconnectInterval===null){
-						reconnectInterval = setInterval(tryReconnect, 1000)
-					}else if (reconnectInterval!==null){
-						clearInterval(reconnectInterval)
-						reconnectInterval = null
-					}
-				}
-			socket.onclose = ()=>{
-				console.log("socketclose")
-				if(!document.hidden) reconnectInterval = setInterval(tryReconnect, 1000)
-				document.addEventListener("visibilitychange", visEventListener)
-			}`)
+var mimeTypes = map[string]string{
+	// copy pasted from golang src/mime/type.go
+	".css":  "text/css; charset=utf-8",
+	".gif":  "image/gif",
+	".htm":  "text/html; charset=utf-8",
+	".html": "text/html; charset=utf-8",
+	".jpeg": "image/jpeg",
+	".jpg":  "image/jpeg",
+	".js":   "text/javascript; charset=utf-8",
+	".json": "application/json",
+	".mjs":  "text/javascript; charset=utf-8",
+	".pdf":  "application/pdf",
+	".png":  "image/png",
+	".svg":  "image/svg+xml",
+	".wasm": "application/wasm",
+	".webp": "image/webp",
+	".xml":  "text/xml; charset=utf-8",
+
+	// added by me
+	".woff2": "font/woff2",
+	".ico":   "image/x-icon",
+}
 
 func fileNameToContentType(str string) string {
-	table := map[string]string{
-		".html":  "text/html; charset=UTF-8",
-		".css":   "text/css; charset=UTF-8",
-		".js":    "application/javascript; charset=UTF-8",
-		".woff2": "font/woff2",
-		".ico":   "image/x-icon",
-		".png":   "image/png",
-		".svg":   "image/svg+xml"}
 	extension := extRegex.FindString(str)
-	contentType := table[extension]
+	contentType := mimeTypes[extension]
 	return contentType
 }
 
@@ -209,8 +213,11 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 			// fmt.Printf("%v\n", err)
 			return
 		}
-		fileBytesWithWebsocketJs := append(websocketJS, fileBytes...)
-		ctx.Write(fileBytesWithWebsocketJs)
+		teError := websocketJSTemplate.Execute(ctx.Response.BodyWriter(), jsOptions)
+		if teError != nil {
+			panic(teError)
+		}
+		ctx.Write(fileBytes)
 	} else {
 		fileBytes, err := ioutil.ReadFile(path)
 		if err != nil {
@@ -262,19 +269,69 @@ func warnIfInWSL2() {
 }
 
 func main() {
+	if templateError != nil {
+		panic(templateError)
+	}
+	/*
+		what command line options do I want?
+
+		When file is changed multiple times quickly, only reload on last one
+
+		When file is changed multiple times quickly, only reload on first one
+
+		When server closes, close all tabs
+
+		port
+
+		host
+
+		no-browser
+
+		open-path -- open to different path than server root
+
+		--help
+
+		--version
+	*/
+
+	host := flag.String("host", "localhost", "Hostname, such as mywebsite.com, 0.0.0.0, or localhost")
+
+	port := flag.String("port", "9090", "Port. Defaults to 9090, public website is 80")
+
+	useBrowser := flag.Bool("browser", true, "Whether to open link in browser on startup")
+
+	flag.BoolVar(&jsOptions.Close, "close", true, "Whether to close the browser tab when the server closes")
+
+	flag.BoolVar(&jsOptions.Reconnect, "reconnect", false, "Try to reconnect to server if server connection is lost")
+
+	browserPath := flag.String("browser-path", "", "relative path to open in browser")
+
+	if len(*browserPath) >= 1 && (*browserPath)[0] != '/' {
+		newBrowserPath := "/" + *browserPath
+		browserPath = &newBrowserPath
+	}
+
+	rootPath := flag.Arg(0)
+	flag.Parse() // --help will print here
+
+	fmt.Println(rootPath)
+	fmt.Println(*host)
+	fmt.Println(*port)
+	fmt.Println(*useBrowser)
+	fmt.Println(*browserPath)
+
+	fmt.Printf("%v\n", os.Args)
+
 	watcher, watchError := fsnotify.NewWatcher()
 	if watchError != nil {
-		panic(errors.New("go live server can't detect file changes on this oprating system"))
+		panic(watchError)
+		// panic(errors.New("go live server can't detect file changes on this oprating system"))
 	}
 
 	warnIfInWSL2()
 
-	argsWithoutProgram := os.Args[1:]
-	if len(argsWithoutProgram) > 0 {
-		rootPath = argsWithoutProgram[0]
-		if rootPath[len(rootPath)-1] != '/' {
-			rootPath += "/"
-		}
+	if len(rootPath) > 0 && rootPath[len(rootPath)-1] != '/' {
+		rootPath += "/"
 	}
 
 	println("watching " + rootPath)
@@ -284,11 +341,14 @@ func main() {
 		panic(addError)
 	}
 
-	fmt.Println("Go live server listening on port 9090")
-	openBrowserToLink("http://localhost:9090")
+	addr := *host + ":" + *port
 
+	fmt.Println("Go live server listening on " + addr)
+	if *useBrowser {
+		openBrowserToLink("http://" + addr + *browserPath)
+	}
 	go fileEventReadLoop(watcher)
 
-	fasthttp.ListenAndServe(":9090", requestHandler)
+	fasthttp.ListenAndServe(addr, requestHandler)
 
 }
