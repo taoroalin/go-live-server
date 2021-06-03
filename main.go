@@ -3,10 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"html/template"
+	htmlTemplate "html/template"
 	"io/ioutil"
-	"log"
-	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -31,14 +29,6 @@ Documentation
 benchmark vs live-server
 
 give warning when under WSL 2 that file notifications don't propagate between the OSes
-
-*/
-
-/*
-
-optional features
-
-support ~/.live-server.json like NPM live-server?
 
 */
 
@@ -69,9 +59,8 @@ func openBrowserToLink(url string) {
 		err = fmt.Errorf("unsupported platform")
 	}
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-
 }
 
 type JSOptions struct {
@@ -82,7 +71,7 @@ type JSOptions struct {
 var jsOptions JSOptions
 
 // weird behavior where it automatically closes the connection if the client doesn't send any message?
-var websocketJSTemplate, templateError = template.New("js").Parse(`
+var websocketJSTemplate, templateError = htmlTemplate.New("js").Parse(`
 <!DOCTYPE html>
 <head>
 <script type="text/javascript">
@@ -145,7 +134,20 @@ var mimeTypes = map[string]string{
 
 	// added by me
 	".woff2": "font/woff2",
-	".ico":   "image/x-icon",
+	".woff":  "font/woff",
+	".ico":   "image/image/vnd.microsoft.icon",
+	// ".ico":   "image/x-icon",
+
+	// extra ones from https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types bc why not
+	".acc":  "audio/acc",
+	".avi":  "video/x-msvideo",
+	".bmp":  "image/bmp",
+	".csv":  "text/csv",
+	".epub": "application/epub+zip",
+	".mp3":  "audio/mpeg",
+	".mpeg": "video/mpeg",
+	".mp4":  "video/mp4",
+	".ttf":  "font/ttf",
 }
 
 func fileNameToContentType(str string) string {
@@ -251,7 +253,7 @@ func fileEventReadLoop(watcher *fsnotify.Watcher) {
 				fmt.Printf("%v\n", err)
 				return
 			}
-			log.Println("error:", err)
+			fmt.Println("error:", err)
 		}
 	}
 }
@@ -320,8 +322,6 @@ func main() {
 	fmt.Println(*useBrowser)
 	fmt.Println(*browserPath)
 
-	fmt.Printf("%v\n", os.Args)
-
 	watcher, watchError := fsnotify.NewWatcher()
 	if watchError != nil {
 		panic(watchError)
@@ -350,5 +350,4 @@ func main() {
 	go fileEventReadLoop(watcher)
 
 	fasthttp.ListenAndServe(addr, requestHandler)
-
 }
