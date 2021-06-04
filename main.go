@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	htmlTemplate "html/template"
+	"io/fs"
 	"io/ioutil"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sync"
@@ -309,12 +311,16 @@ func main() {
 
 	browserPath := flag.String("browser-path", "", "relative path to open in browser")
 
+	nested := flag.Bool("nested", false, "Whether to watch for changes in nested directories. This requires traversing all those folders, so it won't work on gigantic directories")
+
 	if len(*browserPath) >= 1 && (*browserPath)[0] != '/' {
 		newBrowserPath := "/" + *browserPath
 		browserPath = &newBrowserPath
 	}
 
-	rootPath := flag.Arg(0)
+	if flag.Arg(0) != "" {
+		rootPath = flag.Arg(0)
+	}
 	flag.Parse() // --help will print here
 
 	watcher, watchError := fsnotify.NewWatcher()
@@ -330,10 +336,19 @@ func main() {
 	}
 
 	println("watching " + rootPath)
-
-	addError := watcher.Add(rootPath)
-	if addError != nil {
-		panic(addError)
+	if *nested {
+		stime := time.Now()
+		filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
+			watcher.Add(path)
+			// println(path)
+			return nil
+		})
+		fmt.Printf("%v\n", time.Since(stime))
+	} else {
+		addError := watcher.Add(rootPath)
+		if addError != nil {
+			panic(addError)
+		}
 	}
 
 	addr := *host + ":" + *port

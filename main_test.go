@@ -13,10 +13,6 @@ import (
 )
 
 func testMain(t *testing.T) {
-	main()
-}
-
-func main() {
 	// create context
 	ctx, cancel := chromedp.NewContext(context.Background())
 	defer cancel()

@@ -5,6 +5,7 @@ Go Live Server is a static website server that refreshes the browser whenever a 
 Inspired by the package https://github.com/tapio/live-server
 
 ## Usage
+
 ```sh
 cd website-directory
 go-live-server -host=0.0.0.0
@@ -20,6 +21,7 @@ go-live-server -host=0.0.0.0
 - `-close=true` Whether to close the browser tab when the server closes (default true)
 - `-debounce=0` Time to wait after changes before reloading. Use this if it's reloading without all changes. This issue happens when a program saves a file multiple times in quick succession.
 - `-reconnect=false` Try to reconnect JS snippet to server if server is stopped and then started again
+- `-nested=false` Watch nested directories. This requires listening to each subdirectory individually, so it won't work on gigantic directories.
 
 ## Installation
 
@@ -32,7 +34,7 @@ git clone github.com/taoroalin/go-live-server
 cd go-live-server
 go mod tidy
 go build
-./main
+./go-live-server
 ```
 
 ## How it works
