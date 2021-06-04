@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/fasthttp/websocket"
 	"github.com/fsnotify/fsnotify"
@@ -78,15 +79,22 @@ var websocketJSTemplate, templateError = htmlTemplate.New("js").Parse(`
 	let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
 	let address = protocol + window.location.host + '/ws';
 	let socket = new WebSocket(address);
-	socket.addEventListener("message",(msg)=> {
-		if (msg.data == 'reload') window.location.reload();
-	})
-	{{- if .Close}}
-	socket.addEventListener("close", ()=>{
-		window.close()
-	})
-	{{- end}}
+	socket.onmessage = (msg)=> {
+		if (msg.data === 'reload') window.location.reload();
+	}
+	socket.onclose= ()=>{
+		{{- if .Close}}
+		if (window.opener!==null){
+			window.close()
+		} else {
+			console.error("Go Live Server Down")
+		}
+		{{- else}}
+		console.error("Go Live Server Down")
+		{{- end}}
+	}
 	console.log('Go Live Server enabled.');
+	
 	{{- if .Reconnect}}
 	const tryReconnect = ()=>{
 		try{
@@ -231,7 +239,17 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func fileEventReadLoop(watcher *fsnotify.Watcher) {
+func notifyReload() {
+	fmt.Println("file modified, reloading")
+	for _, conn := range connectionList {
+		if conn != nil {
+			conn.WriteMessage(websocket.TextMessage, []byte("reload"))
+		}
+	}
+}
+
+func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int) {
+	var reloadTimer *time.Timer
 	for {
 		select {
 		case event, ok := <-watcher.Events:
@@ -241,11 +259,13 @@ func fileEventReadLoop(watcher *fsnotify.Watcher) {
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write { // what is op 0?
 				// log.Println("modified file:", event.Name)
-				fmt.Println("file modified, reloading")
-				for _, conn := range connectionList {
-					if conn != nil {
-						conn.WriteMessage(websocket.TextMessage, []byte("reload"))
+				if debounce == 0 {
+					notifyReload()
+				} else {
+					if reloadTimer != nil {
+						reloadTimer.Stop()
 					}
+					reloadTimer = time.AfterFunc(time.Duration(debounce)*time.Millisecond, notifyReload)
 				}
 			}
 		case err, ok := <-watcher.Errors:
@@ -296,6 +316,8 @@ func main() {
 		--version
 	*/
 
+	debounce := flag.Int("debounce", 0, "Time to wait after changes before reloading. Use this if it's reloading without all changes. This issue happens when software like formatters save files again whenever they're saved.")
+
 	host := flag.String("host", "localhost", "Hostname, such as mywebsite.com, 0.0.0.0, or localhost")
 
 	port := flag.String("port", "9090", "Port. Defaults to 9090, public website is 80")
@@ -315,12 +337,6 @@ func main() {
 
 	rootPath := flag.Arg(0)
 	flag.Parse() // --help will print here
-
-	fmt.Println(rootPath)
-	fmt.Println(*host)
-	fmt.Println(*port)
-	fmt.Println(*useBrowser)
-	fmt.Println(*browserPath)
 
 	watcher, watchError := fsnotify.NewWatcher()
 	if watchError != nil {
@@ -347,7 +363,7 @@ func main() {
 	if *useBrowser {
 		openBrowserToLink("http://" + addr + *browserPath)
 	}
-	go fileEventReadLoop(watcher)
+	go fileEventReadLoop(watcher, *debounce)
 
 	fasthttp.ListenAndServe(addr, requestHandler)
 }

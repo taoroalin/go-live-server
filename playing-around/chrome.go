@@ -1,3 +1,5 @@
+// Command logic is a chromedp example demonstrating more complex logic beyond
+// simple actions.
 package main
 
 import (
@@ -5,16 +7,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 )
-
-func testMain(t *testing.T) {
-	main()
-}
 
 func main() {
 	// create context
@@ -29,7 +26,7 @@ func main() {
 
 	// output the values
 	for k, v := range res {
-		log.Printf("project %s (%s): '%s'", k, v.URL, v.Description)
+		log.Printf("project %s (%s): '%s'\n\n", k, v.URL, v.Description)
 	}
 }
 
