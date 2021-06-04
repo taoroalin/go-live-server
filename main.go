@@ -294,27 +294,6 @@ func main() {
 	if templateError != nil {
 		panic(templateError)
 	}
-	/*
-		what command line options do I want?
-
-		When file is changed multiple times quickly, only reload on last one
-
-		When file is changed multiple times quickly, only reload on first one
-
-		When server closes, close all tabs
-
-		port
-
-		host
-
-		no-browser
-
-		open-path -- open to different path than server root
-
-		--help
-
-		--version
-	*/
 
 	debounce := flag.Int("debounce", 0, "Time to wait after changes before reloading. Use this if it's reloading without all changes. This issue happens when software like formatters save files again whenever they're saved.")
 
