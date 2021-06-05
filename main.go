@@ -250,7 +250,7 @@ func notifyReload() {
 	}
 }
 
-func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int) {
+func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs bool) {
 	var reloadTimer *time.Timer
 	for {
 		select {
@@ -261,13 +261,15 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int) {
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write { // what is op 0?
 				// log.Println("modified file:", event.Name)
-				if debounce == 0 {
-					notifyReload()
-				} else {
-					if reloadTimer != nil {
-						reloadTimer.Stop()
+				if !(!watchDotfileDirs && event.Name[0] == '.') {
+					if debounce == 0 {
+						notifyReload()
+					} else {
+						if reloadTimer != nil {
+							reloadTimer.Stop()
+						}
+						reloadTimer = time.AfterFunc(time.Duration(debounce)*time.Millisecond, notifyReload)
 					}
-					reloadTimer = time.AfterFunc(time.Duration(debounce)*time.Millisecond, notifyReload)
 				}
 			}
 		case err, ok := <-watcher.Errors:
@@ -311,7 +313,9 @@ func main() {
 
 	browserPath := flag.String("browser-path", "", "relative path to open in browser")
 
-	nested := flag.Bool("nested", false, "Whether to watch for changes in nested directories. This requires traversing all those folders, so it won't work on gigantic directories")
+	nested := flag.Bool("nested", true, "Whether to watch for changes in nested directories. This requires traversing all those folders, so it won't work on gigantic directories")
+
+	watchDotfileDirs := flag.Bool("dotfiles", false, "Whether to watch changes in dotfiles")
 
 	if len(*browserPath) >= 1 && (*browserPath)[0] != '/' {
 		newBrowserPath := "/" + *browserPath
@@ -339,11 +343,22 @@ func main() {
 	if *nested {
 		stime := time.Now()
 		filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
-			watcher.Add(path)
 			// println(path)
+			if !*watchDotfileDirs && path[0] == '.' && path[1] != '/' {
+				return filepath.SkipDir
+			}
+			if d.IsDir() {
+				addError := watcher.Add(path)
+				if addError != nil {
+					panic(addError)
+				}
+			}
 			return nil
 		})
-		fmt.Printf("%v\n", time.Since(stime))
+		took := time.Since(stime)
+		if took > 3*time.Millisecond {
+			fmt.Printf("visiting nested dirs took %v\n", time.Since(stime))
+		}
 	} else {
 		addError := watcher.Add(rootPath)
 		if addError != nil {
@@ -357,7 +372,7 @@ func main() {
 	if *useBrowser {
 		openBrowserToLink("http://" + addr + *browserPath)
 	}
-	go fileEventReadLoop(watcher, *debounce)
+	go fileEventReadLoop(watcher, *debounce, *watchDotfileDirs)
 
 	fasthttp.ListenAndServe(addr, requestHandler)
 }

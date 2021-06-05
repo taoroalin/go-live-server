@@ -34,12 +34,13 @@ git clone github.com/taoroalin/go-live-server
 cd go-live-server
 go mod tidy
 go build
+go install
 ./go-live-server
 ```
 
 ## How it works
 
-It inserts this HTML (with optional extra bits) into the beginning of any HTML file it serves. This leads to 2 `<head>` tags, which is invalid, but browsers are totally fine with it. (because people often make their html invalid to save space, it isn't always possible to make valid html)
+It inserts this HTML (with optional extra bits) into the beginning of any HTML file it serves. This leads to 2 `<head>` tags, which is invalid, but browsers are totally fine with it. (because people often make their html invalid to save space, it isn't always possible to validly add to an html file)
 
 ```html
 <head>
