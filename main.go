@@ -174,7 +174,7 @@ func websocketCallback(conn *websocket.Conn) {
 	// why callback? isn't the Go way to use goroutines?
 	for {
 		messageType, p, err := conn.ReadMessage()
-		println("got message " + string(p))
+		// println("got message " + string(p))
 		if err != nil {
 			fmt.Printf("%v\n", err)
 			connectionListMutex.Lock()
@@ -184,7 +184,7 @@ func websocketCallback(conn *websocket.Conn) {
 			return
 		}
 		if err := conn.WriteMessage(messageType, p); err != nil {
-			fmt.Printf("%v\n", err)
+			// fmt.Printf("%v\n", err)
 			return
 		}
 	}
@@ -250,6 +250,8 @@ func notifyReload() {
 	}
 }
 
+var dotfileRegex = regexp.MustCompile(`(\/|^)\.[^\/\.]+$`)
+
 func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs bool) {
 	var reloadTimer *time.Timer
 	for {
@@ -261,7 +263,7 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write { // what is op 0?
 				// log.Println("modified file:", event.Name)
-				if !(!watchDotfileDirs && event.Name[0] == '.') {
+				if watchDotfileDirs || dotfileRegex.FindString(event.Name) == "" {
 					if debounce == 0 {
 						notifyReload()
 					} else {
@@ -344,7 +346,8 @@ func main() {
 		stime := time.Now()
 		filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 			// println(path)
-			if !*watchDotfileDirs && path[0] == '.' && path[1] != '/' {
+			justName := d.Name()
+			if !*watchDotfileDirs && justName[0] == '.' && len(justName) > 2 {
 				return filepath.SkipDir
 			}
 			if d.IsDir() {
