@@ -33,17 +33,13 @@ Documentation
 
 benchmark vs live-server
 
-give warning when under WSL 2 that file notifications don't propagate between the OSes
-
 */
 
 var websocketUpgrader = websocket.FastHTTPUpgrader{}
 
-// list elements become nil when connections are disconnected. not as easy as I'd like to remove things from collections...
-var connectionListMutex = sync.Mutex{}
-
-// this leaks memory, but wicked slow, 8 bytes per client that disconnects? sadly don't really have to worry about it
-var connectionList = []*websocket.Conn{}
+var connectionsMutex = sync.Mutex{}
+var connectionsSoFar = 0
+var connectionMap = map[int]*websocket.Conn{}
 var rootPath = "./"
 
 var extRegex = regexp.MustCompile(`\.[a-z]+$`)
@@ -125,19 +121,20 @@ func fileNameToContentType(str string) string {
 }
 
 func websocketCallback(conn *websocket.Conn) {
-	connectionListMutex.Lock()
-	connectionListIndex := len(connectionList)
-	connectionList = append(connectionList, conn)
-	connectionListMutex.Unlock()
+	connectionsMutex.Lock()
+	connectionIndex := connectionsSoFar
+	connectionsSoFar++
+	connectionMap[connectionIndex] = conn
+	connectionsMutex.Unlock()
 	// why callback? isn't the Go way to use goroutines?
 	for {
 		_, _, err := conn.ReadMessage()
 		// println("got message " + string(p))
 		if err != nil {
 			// fmt.Printf("%v\n", err)
-			connectionListMutex.Lock()
-			connectionList[connectionListIndex] = nil
-			connectionListMutex.Unlock()
+			connectionsMutex.Lock()
+			delete(connectionMap, connectionIndex)
+			connectionsMutex.Unlock()
 			conn.Close()
 			return
 		}
@@ -196,10 +193,8 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func notifyReload() {
-	for _, conn := range connectionList {
-		if conn != nil {
-			conn.WriteMessage(websocket.TextMessage, []byte("reload"))
-		}
+	for _, conn := range connectionMap {
+		conn.WriteMessage(websocket.TextMessage, []byte("reload"))
 	}
 }
 
@@ -249,7 +244,6 @@ func warnIfInWSL2() {
 }
 
 func main() {
-	println(jsTemplateString)
 	if templateError != nil {
 		panic(templateError)
 	}
