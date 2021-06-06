@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<head>
+<script type="text/javascript">
+	let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+	let address = protocol + window.location.host + '/go-live-server';
+	let socket = new WebSocket(address);
+	socket.onmessage = (msg)=> {
+		if (msg.data === 'reload') window.location.reload();
+	}
+	socket.onclose= ()=>{
+		{{- if .Close}}
+		if (window.opener!==null){
+			window.close()
+		} else {
+			console.error("Go Live Server Down")
+		}
+		{{- else}}
+		console.error("Go Live Server Down")
+		{{- end}}
+	}
+	console.log('Go Live Server enabled.');
+	
+	{{- if .Reconnect}}
+	const tryReconnect = ()=>{
+		try{
+			socket = new WebSocket(address);
+			document.removeEventListener(visEventListener)
+		}catch(e){
+		}
+	}
+	let reconnectInterval = null
+	let visEventListener = ()=>{
+		if(!document.hidden && reconnectInterval===null){
+			reconnectInterval = setInterval(tryReconnect, 1000)
+		}else if (reconnectInterval!==null){
+			clearInterval(reconnectInterval)
+			reconnectInterval = null
+		}
+	}
+	socket.onclose = ()=>{
+		console.log("socketclose")
+		if(!document.hidden) reconnectInterval = setInterval(tryReconnect, 1000)
+		document.addEventListener("visibilitychange", visEventListener)
+	}
+	{{- end}}
+</script>
+</head>

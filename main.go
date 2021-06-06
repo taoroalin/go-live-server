@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	_ "embed"
+
 	"github.com/fasthttp/websocket"
 	"github.com/fsnotify/fsnotify"
 	"github.com/valyala/fasthttp"
@@ -73,56 +75,12 @@ type JSOptions struct {
 
 var jsOptions JSOptions
 
-// weird behavior where it automatically closes the connection if the client doesn't send any message?
-var websocketJSTemplate, templateError = htmlTemplate.New("js").Parse(`
-<!DOCTYPE html>
-<head>
-<script type="text/javascript">
-	let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-	let address = protocol + window.location.host + '/ws';
-	let socket = new WebSocket(address);
-	socket.onmessage = (msg)=> {
-		if (msg.data === 'reload') window.location.reload();
-	}
-	socket.onclose= ()=>{
-		{{- if .Close}}
-		if (window.opener!==null){
-			window.close()
-		} else {
-			console.error("Go Live Server Down")
-		}
-		{{- else}}
-		console.error("Go Live Server Down")
-		{{- end}}
-	}
-	console.log('Go Live Server enabled.');
-	
-	{{- if .Reconnect}}
-	const tryReconnect = ()=>{
-		try{
-			socket = new WebSocket(address);
-			document.removeEventListener(visEventListener)
-		}catch(e){
-		}
-	}
-	let reconnectInterval = null
-	let visEventListener = ()=>{
-		if(!document.hidden && reconnectInterval===null){
-			reconnectInterval = setInterval(tryReconnect, 1000)
-		}else if (reconnectInterval!==null){
-			clearInterval(reconnectInterval)
-			reconnectInterval = null
-		}
-	}
-	socket.onclose = ()=>{
-		console.log("socketclose")
-		if(!document.hidden) reconnectInterval = setInterval(tryReconnect, 1000)
-		document.addEventListener("visibilitychange", visEventListener)
-	}
-	{{- end}}
-</script>
-</head>
-`)
+// go embed is a feature of go 1.16. it embeds files into the following string or []byte var in the Go binary
+
+//go:embed inject.txt
+var jsTemplateString string
+
+var websocketJSTemplate, templateError = htmlTemplate.New("js").Parse(jsTemplateString)
 
 var mimeTypes = map[string]string{
 	// copy pasted from golang src/mime/type.go
@@ -173,18 +131,14 @@ func websocketCallback(conn *websocket.Conn) {
 	connectionListMutex.Unlock()
 	// why callback? isn't the Go way to use goroutines?
 	for {
-		messageType, p, err := conn.ReadMessage()
+		_, _, err := conn.ReadMessage()
 		// println("got message " + string(p))
 		if err != nil {
-			fmt.Printf("%v\n", err)
+			// fmt.Printf("%v\n", err)
 			connectionListMutex.Lock()
 			connectionList[connectionListIndex] = nil
 			connectionListMutex.Unlock()
 			conn.Close()
-			return
-		}
-		if err := conn.WriteMessage(messageType, p); err != nil {
-			// fmt.Printf("%v\n", err)
 			return
 		}
 	}
@@ -198,7 +152,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	}
 	requestedPath := string(ctx.Path())
 	path := rootPath[:len(rootPath)-1] + requestedPath
-	if requestedPath == "/ws" {
+	if requestedPath == "/go-live-server" {
 		err := websocketUpgrader.Upgrade(ctx, websocketCallback)
 		if err != nil {
 			fmt.Printf("%v\n", err)
@@ -242,7 +196,6 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func notifyReload() {
-	fmt.Println("file modified, reloading")
 	for _, conn := range connectionList {
 		if conn != nil {
 			conn.WriteMessage(websocket.TextMessage, []byte("reload"))
@@ -264,6 +217,7 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs
 			if event.Op&fsnotify.Write == fsnotify.Write { // what is op 0?
 				// log.Println("modified file:", event.Name)
 				if watchDotfileDirs || dotfileRegex.FindString(event.Name) == "" {
+					fmt.Println(event.Name + " modified, reloading")
 					if debounce == 0 {
 						notifyReload()
 					} else {
@@ -276,10 +230,8 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
-				fmt.Printf("%v\n", err)
-				return
+				panic(err)
 			}
-			fmt.Println("error:", err)
 		}
 	}
 }
@@ -297,6 +249,7 @@ func warnIfInWSL2() {
 }
 
 func main() {
+	println(jsTemplateString)
 	if templateError != nil {
 		panic(templateError)
 	}
@@ -352,6 +305,7 @@ func main() {
 			}
 			if d.IsDir() {
 				addError := watcher.Add(path)
+				// @TODO special handling of too many watches error
 				if addError != nil {
 					panic(addError)
 				}
@@ -371,11 +325,14 @@ func main() {
 
 	addr := *host + ":" + *port
 
-	fmt.Println("Go live server listening on " + addr)
 	if *useBrowser {
 		openBrowserToLink("http://" + addr + *browserPath)
 	}
 	go fileEventReadLoop(watcher, *debounce, *watchDotfileDirs)
 
-	fasthttp.ListenAndServe(addr, requestHandler)
+	fmt.Println("Go live server listening on " + addr) // @TODO make this only print after successful listen
+	serveError := fasthttp.ListenAndServe(addr, requestHandler)
+	if serveError != nil {
+		println(serveError.Error())
+	}
 }
