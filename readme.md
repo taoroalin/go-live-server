@@ -2,7 +2,7 @@
 
 Go Live Server is a static website server that refreshes the browser whenever a file changes. It does this by adding a JS snippet that receives messages from the server through a websocket whenever a file changes on disk.
 
-Inspired by the package https://github.com/tapio/live-server
+Inspired by the package https://github.com/tapio/live-server, but faster (0.5 second on startup, 50ms on reload), and in the Go ecosystem rather than the Node ecosystem.
 
 ## Usage
 
@@ -19,24 +19,25 @@ go-live-server -host=0.0.0.0
 - `-browser-path`
         relative path to open in browser
 - `-close=true` Whether to close the browser tab when the server closes (default true)
+- `-blind-for=50` Time to wait after changes before detecting changes again
 - `-debounce=0` Time to wait after changes before reloading. Use this if it's reloading without all changes. This issue happens when a program saves a file multiple times in quick succession.
 - `-reconnect=false` Try to reconnect JS snippet to server if server is stopped and then started again.
 - `-nested=true` Watch nested directories. This requires listening to each subdirectory individually, so it won't work on gigantic directories.
+- `-startup-delay=500` Time to wait after server start to look for changes. Exists because vscode (or something) is modifying files when they're first read.
 
 ## Installation
 
 You can install it as an executable from the GitHub [releases](https://github.com/taoroalin/go-live-server/releases) section, or compile the Go source code yourself.
 
-Run from source (after installing [go](https://golang.org/doc/install))
+Run from source (after installing [go](https://golang.org/doc/install) version 1.16+)
 
 ```sh
-git clone github.com/taoroalin/go-live-server
+git clone https://github.com/taoroalin/go-live-server
 cd go-live-server
 go mod tidy
-go build
 go install
-./go-live-server
-```
+go-live-server
+``c`
 
 ## How it works
 
