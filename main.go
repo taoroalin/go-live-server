@@ -192,7 +192,9 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func notifyReload() {
+func notifyReload(name string) {
+	now := time.Now()
+	fmt.Printf("%v modified at %v:%v:%v, reloading\n", name, now.Hour(), now.Minute(), now.Second())
 	for _, conn := range connectionMap {
 		conn.WriteMessage(websocket.TextMessage, []byte("reload"))
 	}
@@ -200,7 +202,7 @@ func notifyReload() {
 
 var dotfileRegex = regexp.MustCompile(`(\/|^)\.[^\/\.]+$`)
 
-func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs bool) {
+func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, blindFor int, watchDotfileDirs bool) {
 	var reloadTimer *time.Timer
 	for {
 		select {
@@ -212,14 +214,24 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, watchDotfileDirs
 			if event.Op&fsnotify.Write == fsnotify.Write { // what is op 0?
 				// log.Println("modified file:", event.Name)
 				if watchDotfileDirs || dotfileRegex.FindString(event.Name) == "" {
-					fmt.Println(event.Name + " modified, reloading")
-					if debounce == 0 {
-						notifyReload()
-					} else {
+					// fmt.Println(event.Name + " modified, reloading")
+					if debounce == 0 && blindFor == 0 {
+						notifyReload(event.Name)
+					} else if debounce != 0 {
 						if reloadTimer != nil {
 							reloadTimer.Stop()
+							reloadTimer = nil
 						}
-						reloadTimer = time.AfterFunc(time.Duration(debounce)*time.Millisecond, notifyReload)
+						reloadTimer = time.AfterFunc(time.Duration(debounce)*time.Millisecond, func() {
+							notifyReload(event.Name)
+						})
+					} else {
+						if reloadTimer == nil {
+							notifyReload(event.Name)
+							reloadTimer = time.AfterFunc(time.Duration(blindFor)*time.Millisecond, func() {
+								reloadTimer = nil
+							})
+						}
 					}
 				}
 			}
@@ -249,6 +261,10 @@ func main() {
 	}
 
 	debounce := flag.Int("debounce", 0, "Time to wait after changes before reloading. Use this if it's reloading without all changes. This issue happens when software like formatters save files again whenever they're saved.")
+
+	blindFor := flag.Int("blind-for", 50, "Time to wait after changes before detecting changes again")
+
+	startupDelay := flag.Int("startup-delay", 500, "Time to wait after server start to look for changes. Exists because vscode (or something) is modifying files when they're first read.")
 
 	host := flag.String("host", "localhost", "Hostname, such as mywebsite.com, 0.0.0.0, or localhost")
 
@@ -322,7 +338,9 @@ func main() {
 	if *useBrowser {
 		openBrowserToLink("http://" + addr + *browserPath)
 	}
-	go fileEventReadLoop(watcher, *debounce, *watchDotfileDirs)
+	time.AfterFunc(time.Millisecond*time.Duration(*startupDelay), func() {
+		fileEventReadLoop(watcher, *debounce, *blindFor, *watchDotfileDirs)
+	})
 
 	fmt.Println("Go live server listening on " + addr) // @TODO make this only print after successful listen
 	serveError := fasthttp.ListenAndServe(addr, requestHandler)

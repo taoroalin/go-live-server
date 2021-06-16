@@ -13,15 +13,15 @@ go-live-server -host=0.0.0.0
 
 ### Options
 
-- `-host=localhost` Hostname, such as mywebsite.com, 0.0.0.0, or localhost
+- `-host=localhost` Hostname, such as mywebsite.com, 0.0.0.0, or localhost.
 - `-port=9090` Port
-- `-browser=true` Whether to open link in browser on startup (default true)       
+- `-browser=true` Whether to open link in browser on startup (default true).    
 - `-browser-path`
         relative path to open in browser
 - `-close=true` Whether to close the browser tab when the server closes (default true)
 - `-debounce=0` Time to wait after changes before reloading. Use this if it's reloading without all changes. This issue happens when a program saves a file multiple times in quick succession.
-- `-reconnect=false` Try to reconnect JS snippet to server if server is stopped and then started again
-- `-nested=false` Watch nested directories. This requires listening to each subdirectory individually, so it won't work on gigantic directories.
+- `-reconnect=false` Try to reconnect JS snippet to server if server is stopped and then started again.
+- `-nested=true` Watch nested directories. This requires listening to each subdirectory individually, so it won't work on gigantic directories.
 
 ## Installation
 
