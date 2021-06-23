@@ -19,6 +19,8 @@ import (
 	"github.com/fasthttp/websocket"
 	"github.com/fsnotify/fsnotify"
 	"github.com/valyala/fasthttp"
+
+	"github.com/fatih/color"
 )
 
 /*
@@ -193,9 +195,15 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	}
 }
 
+var blueFmt = color.New(color.FgBlue)
+var yellowFmt = color.New(color.FgYellow)
+var greenFmt = color.New(color.FgGreen)
+
 func notifyReload(name string) {
 	now := time.Now()
-	fmt.Printf("%v modified at %v:%v:%v, reloading\n", name, now.Hour(), now.Minute(), now.Second())
+	fmt.Printf("%v modified at ", name)
+	blueFmt.Printf("%v:%v:%v", now.Hour(), now.Minute(), now.Second())
+	fmt.Print(", reloading\n")
 	for _, conn := range connectionMap {
 		conn.WriteMessage(websocket.TextMessage, []byte("reload"))
 	}
@@ -229,11 +237,9 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, blindFor int, wa
 					} else {
 						if reloadTimer == nil {
 							notifyReload(event.Name)
-							stime := time.Now()
 							reloadTimer = time.AfterFunc(time.Duration(blindFor)*time.Millisecond, func() {
 								reloadTimer = nil
 							})
-							fmt.Printf("took %v\n", time.Since(stime))
 						}
 					}
 				}
@@ -349,8 +355,9 @@ func main() {
 		if *useBrowser {
 			openBrowserToLink("http://" + addr + *browserPath)
 		}
-
-		fmt.Println("Go live server listening on " + addr) // @TODO make this only print after successful listen
+		greenFmt.Print("Go Live Server")
+		fmt.Print(" listening on ")
+		yellowFmt.Print("http://" + addr + "\n") // @TODO make this only print after successful listen
 		serveError := fasthttp.ListenAndServe(addr, requestHandler)
 		if serveError != nil {
 			// isn't there a good way to check error?
