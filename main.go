@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -228,9 +229,11 @@ func fileEventReadLoop(watcher *fsnotify.Watcher, debounce int, blindFor int, wa
 					} else {
 						if reloadTimer == nil {
 							notifyReload(event.Name)
+							stime := time.Now()
 							reloadTimer = time.AfterFunc(time.Duration(blindFor)*time.Millisecond, func() {
 								reloadTimer = nil
 							})
+							fmt.Printf("took %v\n", time.Since(stime))
 						}
 					}
 				}
@@ -333,18 +336,33 @@ func main() {
 		}
 	}
 
-	addr := *host + ":" + *port
-
-	if *useBrowser {
-		openBrowserToLink("http://" + addr + *browserPath)
-	}
 	time.AfterFunc(time.Millisecond*time.Duration(*startupDelay), func() {
 		fileEventReadLoop(watcher, *debounce, *blindFor, *watchDotfileDirs)
 	})
 
-	fmt.Println("Go live server listening on " + addr) // @TODO make this only print after successful listen
-	serveError := fasthttp.ListenAndServe(addr, requestHandler)
-	if serveError != nil {
-		println(serveError.Error())
+	var tryAddress func()
+	tryAddress = func() {
+		addr := *host + ":" + *port
+
+		if *useBrowser {
+			openBrowserToLink("http://" + addr + *browserPath)
+		}
+
+		fmt.Println("Go live server listening on " + addr) // @TODO make this only print after successful listen
+		serveError := fasthttp.ListenAndServe(addr, requestHandler)
+		if serveError != nil {
+			// isn't there a good way to check error?
+			str := serveError.Error()
+			if regexp.MustCompile(`Only one usage of each socket address`).FindString(str) != "" {
+				portInt, _ := strconv.Atoi(*port)
+				*port = fmt.Sprintf("%v", portInt+1)
+				fmt.Println("Port taken, trying another port")
+				tryAddress()
+			} else {
+				println(serveError.Error())
+			}
+			return
+		}
 	}
+	tryAddress()
 }
