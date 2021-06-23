@@ -24,6 +24,7 @@ go-live-server -host=0.0.0.0
 - `-reconnect=false` Try to reconnect JS snippet to server if server is stopped and then started again.
 - `-nested=true` Watch nested directories. This requires listening to each subdirectory individually, so it won't work on gigantic directories.
 - `-startup-delay=500` Time to wait after server start to look for changes. Exists because vscode (or something) is modifying files when they're first read.
+- `-rigid-port` Don't try a new port if the specified one is taken.
 
 ## Installation
 

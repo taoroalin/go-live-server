@@ -285,6 +285,8 @@ func main() {
 
 	watchDotfileDirs := flag.Bool("dotfiles", false, "Whether to watch changes in dotfiles")
 
+	rigidPort := flag.Bool("rigid-port", false, "don't try a new port if the port's taken")
+
 	if len(*browserPath) >= 1 && (*browserPath)[0] != '/' {
 		newBrowserPath := "/" + *browserPath
 		browserPath = &newBrowserPath
@@ -353,7 +355,7 @@ func main() {
 		if serveError != nil {
 			// isn't there a good way to check error?
 			str := serveError.Error()
-			if regexp.MustCompile(`Only one usage of each socket address`).FindString(str) != "" {
+			if !*rigidPort && regexp.MustCompile(`Only one usage of each socket address`).FindString(str) != "" {
 				portInt, _ := strconv.Atoi(*port)
 				*port = fmt.Sprintf("%v", portInt+1)
 				fmt.Println("Port taken, trying another port")
