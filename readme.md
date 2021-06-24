@@ -14,7 +14,7 @@ go-live-server -host=0.0.0.0
 ### Options
 
 - `-host=localhost` Hostname, such as mywebsite.com, 0.0.0.0, or localhost.
-- `-port=9090` Port
+- `-port=8088` Port
 - `-browser=true` Whether to open link in browser on startup (default true).    
 - `-browser-path`
         relative path to open in browser

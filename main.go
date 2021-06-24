@@ -171,6 +171,12 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Response.Header.Set("Content-Type", contentType)
 	}
 
+	// ctx.Response.Header.Set("Connection", "keep-alive")
+	// ctx.Response.Header.Set("Cache-Control", "public, max-age=0")
+	// ctx.Response.Header.Set("Etag", fmt.Sprintf("%v", rand.Int63()))
+	// nw := time.Now().UTC()
+	// ctx.Response.Header.Set("Last-Modified", fmt.Sprintf("%v, %v %v %v %v:%v:%v GMT", nw.Weekday().String()[:3], nw.Day(), nw.Month().String()[:3], nw.Year(), nw.Hour(), nw.Minute(), nw.Second()))
+
 	if len(path) >= 5 && path[len(path)-5:] == ".html" {
 		fileBytes, err := ioutil.ReadFile(path)
 		if err != nil {
@@ -277,7 +283,7 @@ func main() {
 
 	host := flag.String("host", "localhost", "Hostname, such as mywebsite.com, 0.0.0.0, or localhost")
 
-	port := flag.String("port", "9090", "Port. Defaults to 9090, public website is 80")
+	port := flag.String("port", "8088", "Port. Defaults to 8088, public website is 80")
 
 	useBrowser := flag.Bool("browser", true, "Whether to open link in browser on startup")
 
@@ -358,7 +364,11 @@ func main() {
 		greenFmt.Print("Go Live Server")
 		fmt.Print(" listening on ")
 		yellowFmt.Print("http://" + addr + "\n") // @TODO make this only print after successful listen
-		serveError := fasthttp.ListenAndServe(addr, requestHandler)
+		fasthttpServer := fasthttp.Server{
+			Handler:               requestHandler,
+			NoDefaultServerHeader: true,
+		}
+		serveError := fasthttpServer.ListenAndServe(addr)
 		if serveError != nil {
 			// isn't there a good way to check error?
 			str := serveError.Error()
